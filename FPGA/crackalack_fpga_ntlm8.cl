@@ -28,6 +28,7 @@ inline void index_to_plaintext(unsigned long index, __constant char *charset, un
  */
 
 #undef MD4_LUT3 /* No good for this format, just here for reference */
+#define HAVE_ANDNOT 1
 
 /* The basic MD4 functions */
 #if MD4_LUT3
