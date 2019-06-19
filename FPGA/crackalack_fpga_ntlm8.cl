@@ -1,11 +1,25 @@
-inline void index_to_plaintext(unsigned long index, __constant char *charset, unsigned char *plaintext) {
+inline void index_to_plaintext(unsigned long index, unsigned char *plaintext) {
 
+  __attribute__((xcl_pipeline_loop))
   for (int i = 7; i >= 0; i--) {
-    plaintext[i] = charset[index % 95];
-    index = index / 95;
-  }
+    // TODO: should verify that the compiler. If not, need to do division and
+    // modulo by ourselves to optimize the circuit.
+    //
+    // Regardless, it may be more efficient to do the division once and then
+    // calculate the remainder using multiplication and subtraction on the
+    // quotient and dividend. Using the modulo operator followed by the
+    // division operator, even with the same constant, likely causes the
+    // synthesis tool to generate two divisions.
+    unsigned long quotient = index / 95;
 
-  return;
+    // ASSUMPTION: charset is ASCII-95. In that case, instead of using a lookup
+    // table we can translate the index to a printable character by adding 32,
+    // or even better by ORing 0x20.
+    //
+    // remainder = n - (q * c), c = 95
+    plaintext[i] = (index - quotient * 95) | 0x20;
+    index = quotient;
+  }
 }
 
 
@@ -144,9 +158,6 @@ inline unsigned long ntlm_hash(unsigned char *plaintext, unsigned char *hash, un
 }
 
 
-__constant char charset[] = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-
-
 /* TODO: specify array length in definition...somehow? */
 __kernel void crackalack_fpga_ntlm8(__global unsigned long *g_start_indices, __global unsigned long *g_end_indices) {
 
@@ -156,7 +167,7 @@ __kernel void crackalack_fpga_ntlm8(__global unsigned long *g_start_indices, __g
 
 
   for (unsigned int pos = 0; pos < 421999; pos++) {
-    index_to_plaintext(index, charset, plaintext);
+    index_to_plaintext(index, plaintext);
     index = ntlm_hash(plaintext, hash, pos);
   }
 
