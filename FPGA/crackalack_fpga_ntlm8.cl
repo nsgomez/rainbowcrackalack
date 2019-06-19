@@ -1,5 +1,9 @@
-inline void index_to_plaintext(unsigned long index, unsigned char *plaintext) {
+typedef union {
+	uint4 cl_vec;
+	uint arr[4];
+} md4_hash;
 
+inline void index_to_plaintext(unsigned long index, unsigned char *plaintext) {
   __attribute__((xcl_pipeline_loop))
   for (int i = 7; i >= 0; i--) {
     // TODO: should verify that the compiler. If not, need to do division and
@@ -74,71 +78,98 @@ inline void index_to_plaintext(unsigned long index, unsigned char *plaintext) {
 	(a) += f((b), (c), (d)) + (x); \
 	(a) = rotate((a), (uint)(s)) //(a) = ((a << s) | (a >> (32 - s))) 
 
-inline void md4_encrypt(__private uint *hash, __private uint *W)
+void md4_round1(__private md4_hash *hash, __private uint W, uchar s)
 {
-	hash[0] = 0x67452301;
-	hash[1] = 0xefcdab89;
-	hash[2] = 0x98badcfe;
-	hash[3] = 0x10325476;
+	hash->arr[0] = F(hash->arr[1], hash->arr[2], hash->arr[3]) + W;
+	hash->cl_vec = rotate(hash->cl_vec, s);
+}
+
+void md4_round2(__private md4_hash *hash, __private uint W, uchar s)
+{
+	hash->arr[0] = G(hash->arr[1], hash->arr[2], hash->arr[3]) + W + 0x5a827999;
+	hash->cl_vec = rotate(hash->cl_vec, s);
+}
+
+void md4_round3a(__private md4_hash *hash, __private uint W, uchar s)
+{
+	hash->arr[0] = H(hash->arr[1], hash->arr[2], hash->arr[3]) + W + 0x6ed9eba1;
+	hash->cl_vec = rotate(hash->cl_vec, s);
+}
+
+void md4_round3b(__private md4_hash *hash, __private uint W, uchar s)
+{
+	hash->arr[0] = H2(hash->arr[1], hash->arr[2], hash->arr[3]) + W + 0x6ed9eba1;
+	hash->cl_vec = rotate(hash->cl_vec, s);
+}
+
+// Since we're treating each MD4 round as its own task, instruct the
+// synthesis tool to pipeline each call.
+__attribute__((xcl_pipeline_workitems))
+void md4_encrypt(__private md4_hash *hash, __private uint *W)
+{
+	hash->arr[0] = 0x67452301;
+	hash->arr[1] = 0xefcdab89;
+	hash->arr[2] = 0x98badcfe;
+	hash->arr[3] = 0x10325476;
 
 	/* Round 1 */
-	STEP(F, hash[0], hash[1], hash[2], hash[3], W[0], 3);
-	STEP(F, hash[3], hash[0], hash[1], hash[2], W[1], 7);
-	STEP(F, hash[2], hash[3], hash[0], hash[1], W[2], 11);
-	STEP(F, hash[1], hash[2], hash[3], hash[0], W[3], 19);
-	STEP(F, hash[0], hash[1], hash[2], hash[3], W[4], 3);
-	STEP(F, hash[3], hash[0], hash[1], hash[2], W[5], 7);
-	STEP(F, hash[2], hash[3], hash[0], hash[1], W[6], 11);
-	STEP(F, hash[1], hash[2], hash[3], hash[0], W[7], 19);
-	STEP(F, hash[0], hash[1], hash[2], hash[3], W[8], 3);
-	STEP(F, hash[3], hash[0], hash[1], hash[2], W[9], 7);
-	STEP(F, hash[2], hash[3], hash[0], hash[1], W[10], 11);
-	STEP(F, hash[1], hash[2], hash[3], hash[0], W[11], 19);
-	STEP(F, hash[0], hash[1], hash[2], hash[3], W[12], 3);
-	STEP(F, hash[3], hash[0], hash[1], hash[2], W[13], 7);
-	STEP(F, hash[2], hash[3], hash[0], hash[1], W[14], 11);
-	STEP(F, hash[1], hash[2], hash[3], hash[0], W[15], 19);
+	md4_round1(hash, W[0], 3);
+	md4_round1(hash, W[1], 7);
+	md4_round1(hash, W[2], 11);
+	md4_round1(hash, W[3], 19);
+	md4_round1(hash, W[4], 3);
+	md4_round1(hash, W[5], 7);
+	md4_round1(hash, W[6], 11);
+	md4_round1(hash, W[7], 19);
+	md4_round1(hash, W[8], 3);
+	md4_round1(hash, W[9], 7);
+	md4_round1(hash, W[10], 11);
+	md4_round1(hash, W[11], 19);
+	md4_round1(hash, W[12], 3);
+	md4_round1(hash, W[13], 7);
+	md4_round1(hash, W[14], 11);
+	md4_round1(hash, W[15], 19);
 
 	/* Round 2 */
-	STEP(G, hash[0], hash[1], hash[2], hash[3], W[0] + 0x5a827999, 3);
-	STEP(G, hash[3], hash[0], hash[1], hash[2], W[4] + 0x5a827999, 5);
-	STEP(G, hash[2], hash[3], hash[0], hash[1], W[8] + 0x5a827999, 9);
-	STEP(G, hash[1], hash[2], hash[3], hash[0], W[12] + 0x5a827999, 13);
-	STEP(G, hash[0], hash[1], hash[2], hash[3], W[1] + 0x5a827999, 3);
-	STEP(G, hash[3], hash[0], hash[1], hash[2], W[5] + 0x5a827999, 5);
-	STEP(G, hash[2], hash[3], hash[0], hash[1], W[9] + 0x5a827999, 9);
-	STEP(G, hash[1], hash[2], hash[3], hash[0], W[13] + 0x5a827999, 13);
-	STEP(G, hash[0], hash[1], hash[2], hash[3], W[2] + 0x5a827999, 3);
-	STEP(G, hash[3], hash[0], hash[1], hash[2], W[6] + 0x5a827999, 5);
-	STEP(G, hash[2], hash[3], hash[0], hash[1], W[10] + 0x5a827999, 9);
-	STEP(G, hash[1], hash[2], hash[3], hash[0], W[14] + 0x5a827999, 13);
-	STEP(G, hash[0], hash[1], hash[2], hash[3], W[3] + 0x5a827999, 3);
-	STEP(G, hash[3], hash[0], hash[1], hash[2], W[7] + 0x5a827999, 5);
-	STEP(G, hash[2], hash[3], hash[0], hash[1], W[11] + 0x5a827999, 9);
-	STEP(G, hash[1], hash[2], hash[3], hash[0], W[15] + 0x5a827999, 13);
+	md4_round2(hash, W[0], 3);
+	md4_round2(hash, W[4], 5);
+	md4_round2(hash, W[8], 9);
+	md4_round2(hash, W[12], 13);
+	md4_round2(hash, W[1], 3);
+	md4_round2(hash, W[5], 5);
+	md4_round2(hash, W[9], 9);
+	md4_round2(hash, W[13], 13);
+	md4_round2(hash, W[2], 3);
+	md4_round2(hash, W[6], 5);
+	md4_round2(hash, W[10], 9);
+	md4_round2(hash, W[14], 13);
+	md4_round2(hash, W[3], 3);
+	md4_round2(hash, W[7], 5);
+	md4_round2(hash, W[11], 9);
+	md4_round2(hash, W[15], 13);
 
 	/* Round 3 */
-	STEP(H, hash[0], hash[1], hash[2], hash[3], W[0] + 0x6ed9eba1, 3);
-	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[8] + 0x6ed9eba1, 9);
-	STEP(H, hash[2], hash[3], hash[0], hash[1], W[4] + 0x6ed9eba1, 11);
-	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[12] + 0x6ed9eba1, 15);
-	STEP(H, hash[0], hash[1], hash[2], hash[3], W[2] + 0x6ed9eba1, 3);
-	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[10] + 0x6ed9eba1, 9);
-	STEP(H, hash[2], hash[3], hash[0], hash[1], W[6] + 0x6ed9eba1, 11);
-	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[14] + 0x6ed9eba1, 15);
-	STEP(H, hash[0], hash[1], hash[2], hash[3], W[1] + 0x6ed9eba1, 3);
-	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[9] + 0x6ed9eba1, 9);
-	STEP(H, hash[2], hash[3], hash[0], hash[1], W[5] + 0x6ed9eba1, 11);
-	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[13] + 0x6ed9eba1, 15);
-	STEP(H, hash[0], hash[1], hash[2], hash[3], W[3] + 0x6ed9eba1, 3);
-	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[11] + 0x6ed9eba1, 9);
-	STEP(H, hash[2], hash[3], hash[0], hash[1], W[7] + 0x6ed9eba1, 11);
-	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[15] + 0x6ed9eba1, 15);
+	md4_round3a(hash, W[0], 3);
+	md4_round3b(hash, W[8], 9);
+	md4_round3a(hash, W[4], 11);
+	md4_round3b(hash, W[12], 15);
+	md4_round3a(hash, W[2], 3);
+	md4_round3b(hash, W[10], 9);
+	md4_round3a(hash, W[6], 11);
+	md4_round3b(hash, W[14], 15);
+	md4_round3a(hash, W[1], 3);
+	md4_round3b(hash, W[9], 9);
+	md4_round3a(hash, W[5], 11);
+	md4_round3b(hash, W[13], 15);
+	md4_round3a(hash, W[3], 3);
+	md4_round3b(hash, W[11], 9);
+	md4_round3a(hash, W[7], 11);
+	md4_round3b(hash, W[15], 15);
 
-	hash[0] = hash[0] + 0x67452301;
-	hash[1] = hash[1] + 0xefcdab89;
-	hash[2] = hash[2] + 0x98badcfe;
-	hash[3] = hash[3] + 0x10325476;
+	hash->arr[0] += 0x67452301;
+	hash->arr[1] += 0xefcdab89;
+	hash->arr[2] += 0x98badcfe;
+	hash->arr[3] += 0x10325476;
 }
 
 unsigned long ntlm_hash(unsigned char *plaintext, unsigned char *hash, unsigned int pos) {
@@ -158,7 +189,7 @@ unsigned long ntlm_hash(unsigned char *plaintext, unsigned char *hash, unsigned 
   key[4] = 0x80;
   key[14] = 0x80;
 
-  md4_encrypt(output, key);
+  md4_encrypt((md4_hash*)output, key);
 
   unsigned long ret = ((unsigned long)output[1]) << 32 | (unsigned long)output[0];
   return (ret + pos) % 6634204312890625UL;
