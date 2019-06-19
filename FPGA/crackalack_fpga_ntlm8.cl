@@ -197,7 +197,10 @@ unsigned long ntlm_hash(unsigned char *plaintext, unsigned char *hash, unsigned 
 
 
 /* TODO: specify array length in definition...somehow? */
-__kernel void crackalack_fpga_ntlm8(__global unsigned long *g_start_indices, __global unsigned long *g_end_indices) {
+__kernel
+__attribute__((vec_type_hint(ulong)))
+__attribute__((reqd_work_group_size(64, 1, 1)))
+void crackalack_fpga_ntlm8(__global unsigned long *g_start_indices, __global unsigned long *g_end_indices) {
 
   unsigned long index = g_start_indices[get_global_id(0)];
   unsigned char plaintext[8];
