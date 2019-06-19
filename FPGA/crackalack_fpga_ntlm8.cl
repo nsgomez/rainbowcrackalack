@@ -141,13 +141,20 @@ inline void md4_encrypt(__private uint *hash, __private uint *W)
 	hash[3] = hash[3] + 0x10325476;
 }
 
-inline unsigned long ntlm_hash(unsigned char *plaintext, unsigned char *hash, unsigned int pos) {
+unsigned long ntlm_hash(unsigned char *plaintext, unsigned char *hash, unsigned int pos) {
   unsigned int key[16] = {0};
   unsigned int output[4];
 
-  for (int i = 0; i < 4; i++)
+  // Unrolling this loop enables the FPGA synthesizer to perform these
+  // assignments in parallel
+  /*for (int i = 0; i < 4; i++) {
     key[i] = plaintext[i * 2] | (plaintext[(i * 2) + 1] << 16);
+  }*/
 
+  key[0] = plaintext[0] | (plaintext[1] << 16);
+  key[1] = plaintext[2] | (plaintext[3] << 16);
+  key[2] = plaintext[4] | (plaintext[5] << 16);
+  key[3] = plaintext[6] | (plaintext[7] << 16);
   key[4] = 0x80;
   key[14] = 0x80;
 
