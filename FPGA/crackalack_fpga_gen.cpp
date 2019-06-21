@@ -22,13 +22,13 @@
  *   #659: 62a42e8de712ad84cdfe1ef50908e1f77b92faa18973c9eb65201ad55f618d11
  */
 
-#ifdef NOT_AWS_FPGA
+//#ifdef NOT_AWS_FPGA
 #define CL_HPP_TARGET_OPENCL_VERSION 120
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #include <CL/cl2.hpp>
-#else
-#include "xcl2.hpp"
-#endif
+//#else
+#include <xcl2.hpp>
+//#endif
 
 #define FPGA_NTLM8_KERNEL "crackalack_fpga_ntlm8.cl"
 #define FPGA_NTLM8_KERNEL_ENTRY "crackalack_fpga_ntlm8"
@@ -98,8 +98,8 @@ string seconds_to_human_time(double seconds) {
 
 int main(int ac, char **av) {
 
-  if ((ac != 3) && (ac != 4)) {
-    cerr << "Usage:  " << av[0] << " output_dir table_number [gws]" << endl;
+  if ((ac != 4) && (ac != 5)) {
+    cerr << "Usage:  " << av[0] << " output_dir table_number kernel_filename [gws]" << endl;
     return -1;
   }
 
@@ -107,8 +107,8 @@ int main(int ac, char **av) {
   unsigned int part_index = atoi(av[2]);
 
   unsigned int gws = 16384;
-  if (ac == 4) {
-    gws = atoi(av[3]);
+  if (ac == 5) {
+    gws = atoi(av[4]);
     if (gws == 0) {
       cerr << "Error: GWS must be greater than zero." << endl;
       return -1;
@@ -161,7 +161,8 @@ int main(int ac, char **av) {
   cout << "Device name: " << device_name.c_str() << endl;
 
 
-#ifdef NOT_AWS_FPGA
+#if 0
+//#ifdef NOT_AWS_FPGA
   ifstream file;
   file.open(FPGA_NTLM8_KERNEL);
   if (!file) {
@@ -183,9 +184,27 @@ int main(int ac, char **av) {
 
   CL_CHECK(err, cl::Kernel kernel(program, FPGA_NTLM8_KERNEL_ENTRY, &err));
 #else /* On AWS FPGA... */
+  ifstream file;
+  file.open(av[3]);
+  if (!file) {
+    cerr << "Failed to open file containing kernel: " << av[3] << endl;
+    return -1;
+  }
 
-  std::string binaryFile = xcl::find_binary_file(device_name,"crackalack_fpga_ntlm8");
-  cl::Program::Binaries bins = xcl::import_binary_file(binaryFile);
+  cout << "Reading kernel buffer..." << endl << flush;
+
+  stringstream fileBuffer;
+  fileBuffer << file.rdbuf();
+  string kerndata = fileBuffer.str();
+
+  vector<unsigned char> bin0;
+  unsigned char *bindata = (unsigned char *) kerndata.c_str();
+  bin0.assign(bindata, bindata + kerndata.length());
+
+  cout << "Kernel buffer length: " << fileBuffer.str().length() << endl << flush;
+
+  cl::Program::Binaries bins;
+  bins.push_back(bin0);
   devices.resize(1);
 
   vector<cl_int> binStatus;
@@ -194,7 +213,9 @@ int main(int ac, char **av) {
   cout << "Return value from Kernel constructor: " << err << endl << flush;
 #endif
 
-  cl_ulong start_indices[gws] = {0}, end_indices[gws] = {0};
+  cl_ulong start_indices[gws], end_indices[gws];
+  memset(start_indices, 0, sizeof(start_indices));
+  memset(end_indices, 0, sizeof(end_indices));
 
 
   CL_CHECK(err, cl::Buffer startIndicesBuffer(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, sizeof(cl_ulong) * gws, start_indices, &err));
@@ -234,7 +255,7 @@ int main(int ac, char **av) {
     CL_CHECK(err, err = kernel.setArg(0, startIndicesBuffer));
     CL_CHECK(err, err = kernel.setArg(1, endIndicesBuffer));
 
-    CL_CHECK(err, err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(gws)));
+    CL_CHECK(err, err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(gws), cl::NDRange(1, 1, 1)));
 
     CL_CHECK(err, err = queue.enqueueMigrateMemObjects(writeBufferVector, CL_MIGRATE_MEM_OBJECT_HOST));
 
@@ -296,6 +317,7 @@ int main(int ac, char **av) {
     success = false;
   }
 
+  file.close();
   FCLOSE(f);
   FREE(buf);
 
