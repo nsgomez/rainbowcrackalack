@@ -28,7 +28,8 @@ CXXFLAGS = -I $(XILINX_SDX)/runtime/include/1_2/ -I/$(XILINX_SDX)/Vivado_HLS/inc
 LDFLAGS = -lOpenCL -lpthread -lrt -lstdc++ -L$(XILINX_SDX)/runtime/lib/x86_64
 
 # Kernel compiler global settings
-CLFLAGS = --kernel_frequency=450 -O3 -j8 -t $(TARGET) --platform $(DEVICE) --save-temps 
+CUCOUNT := 60
+CLFLAGS = --kernel_frequency=450 -O3 -j8 --nk crackalack_fpga_ntlm8:$(CUCOUNT) -t $(TARGET) --platform $(DEVICE) --save-temps 
 
 
 EXECUTABLE = crackalack_fpga_gen
@@ -59,7 +60,7 @@ $(XCLBIN)/crackalack_fpga_ntlm8.$(TARGET).$(DSA).xo: ./crackalack_fpga_ntlm8.cl
 	$(XOCC) $(CLFLAGS) -c -k crackalack_fpga_ntlm8 -I'$(<D)' -o'$@' '$<'
 
 $(XCLBIN)/crackalack_fpga_ntlm8.$(TARGET).$(DSA).xclbin: $(BINARY_CONTAINER_crackalack_fpga_ntlm8_OBJS)
-	$(XOCC) $(CLFLAGS) -l $(LDCLFLAGS) --nk crackalack_fpga_ntlm8:1 -o'$@' $(+)
+	$(XOCC) $(CLFLAGS) -l $(LDCLFLAGS) -o'$@' $(+)
 
 # Building Host
 $(EXECUTABLE): $(HOST_SRCS) $(HOST_HDRS)

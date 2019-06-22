@@ -44,11 +44,42 @@ DEFINE_DIV_B(735091890625, 0x17EE949A457A9FEB, 36);
 DEFINE_DIV_A(69833729609375, 0x1F616A9FFC60F49, 45);
 DEFINE_DIV_B(6634204312890625, 0x2B72345286B2DF8B, 50);
 
-__attribute__((always_inline)) uchar mod95(ulong x) { return (x - (div95(x) * 95UL)) & 0xFF; }
-__attribute__((always_inline)) ulong mod6634204312890625(ulong x) { return x - (div6634204312890625(x) * 6634204312890625UL); }
+__attribute__((always_inline))
+inline uchar mod95(ulong x) { return (x - (div95(x) * 95UL)) & 0xFF; }
+
+//__attribute__((always_inline))
+//__attribute__((xcl_pipeline_workitems))
+//inline ulong mod6634204312890625(ulong x) { return x - (div6634204312890625(x) * 6634204312890625UL); }
 
 __attribute__((always_inline))
-inline void index_to_plaintext(ulong index, uchar *plaintext) {
+inline void reduce_index(ulong index, ulong *reduced) {
+  reduced[7] = index;
+  reduced[6] = div95(index);
+  reduced[5] = div9025(index);
+  reduced[4] = div857375(index);
+  reduced[3] = div81450625(index);
+  reduced[2] = div7737809375(index);
+  reduced[1] = div735091890625(index);
+  reduced[0] = div69833729609375(index);
+}
+
+void reduced_indices_to_plaintext(const ulong *restrict reduced, uchar *restrict plaintext) {
+  __attribute__((opencl_unroll_hint))
+  for (uchar i = 0; i < 7; i++) {
+    plaintext[i] = mod95(reduced[i]) + 32;
+  }
+}
+
+__attribute__((xcl_pipeline_workitems))
+void index_to_plaintext(ulong index, uchar *plaintext) {
+  ulong reduced_indices[8];
+
+  reduce_index(index, reduced_indices);
+  reduced_indices_to_plaintext(reduced_indices, plaintext);
+}
+
+#if 0
+void index_to_plaintext(ulong index, uchar *plaintext) {
   plaintext[7] = (uchar)32 + mod95(index);
   plaintext[6] = (uchar)32 + mod95(div95(index));
   plaintext[5] = (uchar)32 + mod95(div9025(index));
@@ -69,11 +100,12 @@ inline void index_to_plaintext(ulong index, uchar *plaintext) {
   // change, these can be done independently and the synthesizer parallelizes
   // the math.
 
-  /* for (int i = 7; i >= 0; i--) {
+  /*for (int i = 7; i >= 0; i--) {
     plaintext[i] = charset[index % 95];
     index = index / 95;
-  } */
+  }*/
 }
+#endif
 
 
 /*
@@ -122,17 +154,25 @@ inline void index_to_plaintext(ulong index, uchar *plaintext) {
 #define H2(x, y, z)	((x) ^ ((y) ^ (z)))
 #endif
 
+// Using the OpenCL rotate() call usually causes the compiler and synthesizer
+// to use a completely separate block to do the shift, which takes an extra
+// clock cycle. An extra clock cycle in the MD4 module is a big bottleneck,
+// since the MD4 loop is called 422,000 times and is completely sequential.
+
+#define FAST_ROTATE(x, s) ((x) << (s)) | (((x) & (0xFFFFFFFFU << (32 - (s)))) >> (32 - (s)))
+
 /* The MD4 transformation for all three rounds. */
 #define STEP(f, a, b, c, d, x, s) \
-  (a) = rotate((a) + f((b), (c), (d)) + (x), (uint)(s));
+  (a) = FAST_ROTATE((a) + f((b), (c), (d)) + (x), (s));
+
 
 // NOTE: MD4 hashing in this kernel uses a sparse representation of the message
 // block. Since NTLM-8 always uses 0x80 for key[4] and key[14] and all elements
 // between key[5] and key[13] inclusive are zero, we only need four bytes for
 // the key, which reduces the bandwidth needed for I/O in the MD4 component.
 
-__attribute__((always_inline))
-inline uint4 md4_encrypt(const uint4 W)
+__attribute__((xcl_pipeline_workitems))
+uint4 md4_encrypt(const uint4 W)
 {
   uint4 hash;
   hash[0] = 0x67452301;
@@ -203,12 +243,8 @@ inline uint4 md4_encrypt(const uint4 W)
 }
 
 __attribute__((xcl_pipeline_workitems))
-inline ulong ntlm_hash(ulong index, uint pos) {
-  uchar plaintext[8] __attribute__((xcl_array_partition(complete, 1)));
+inline ulong ntlm_hash(const uchar *plaintext) {
   uint4 key = 0;
-
-  index_to_plaintext(index, plaintext);
-
   key[0] = plaintext[0] | (plaintext[1] << 16);
   key[1] = plaintext[2] | (plaintext[3] << 16);
   key[2] = plaintext[4] | (plaintext[5] << 16);
@@ -217,9 +253,7 @@ inline ulong ntlm_hash(ulong index, uint pos) {
   //key[14] = 0x80;
 
   uint4 output = md4_encrypt(key);
-  ulong ret = ((ulong)output[1]) << 32 | (ulong)output[0];
-
-  return mod6634204312890625(ret + pos);
+  return ((ulong)output[1]) << 32 | (ulong)output[0];
 }
 
 
@@ -230,11 +264,16 @@ __attribute__((vec_type_hint(ulong)))
 __attribute__((xcl_zero_global_work_offset))
 void crackalack_fpga_ntlm8(__global const ulong *restrict g_start_indices, __global ulong *restrict g_end_indices)
 {
-  ulong index = g_start_indices[get_global_id(0)];
+  __private ulong ntlm, tmp;
+  __private ulong index = g_start_indices[get_global_id(0)];
+  __private uchar plaintext[8] __attribute__((xcl_array_partition(complete, 1)));
 
-  __attribute__((xcl_pipelne_loop))
+  __attribute__((xcl_pipeline_loop))
   for (uint pos = 0; pos < 421999; pos++) {
-    index = ntlm_hash(index, pos);
+    index_to_plaintext(index, plaintext);
+    ntlm = ntlm_hash(plaintext);
+    tmp = div6634204312890625(ntlm);
+    index = ntlm - (tmp * 6634204312890625UL);
   }
 
   g_end_indices[get_global_id(0)] = index;
